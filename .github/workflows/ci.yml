@@ -63,7 +63,10 @@ jobs:
           assert data["has_header"] is True, data
           PY
 
+          set +e
           python -m csvdoctor.cli profile examples/messy.csv --json > profile.json
+          test "$?" -eq 2
+          set -e
           python - <<'PY'
           import json
           data = json.load(open("profile.json"))
