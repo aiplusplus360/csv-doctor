@@ -76,7 +76,7 @@ jobs:
           assert data["ragged_rows"] == 1, data["ragged_rows"]
           kinds = {c["name"]: c["kind"] for c in data["column_profiles"]}
           assert kinds["id"] == "integer", kinds
-          assert kinds["mrr"] == "integer", kinds
+          assert kinds["MRR"] == "integer", kinds
           codes = {r["code"] for r in data["recommendations"]}
           assert "ragged_rows" in codes, codes
           assert "mixed_date_formats" in codes, codes
