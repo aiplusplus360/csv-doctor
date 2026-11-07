@@ -1,0 +1,18 @@
+{
+  "name": "customer-export",
+  "required_columns": ["id", "Full Name", "MRR"],
+  "unique": [["id"]],
+  "columns": {
+    "id": [{ "rule": "required" }, { "rule": "type", "value": "integer" }],
+    "Full Name": [{ "rule": "required" }, { "rule": "min_length", "value": 2 }],
+    "MRR": [
+      { "rule": "required" },
+      { "rule": "range", "min": 0, "max": 100000, "severity": "warning" }
+    ],
+    "Status": [
+      { "rule": "allowed", "values": ["Active", "Churned", "Trial"] }
+    ],
+    "Signup Date": [{ "rule": "type", "value": "date" }]
+  },
+  "max_rows": 500000
+}

@@ -1,0 +1,175 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: test (python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.9", "3.11", "3.13"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install
+        run: python -m pip install --upgrade pip && python -m pip install -e .
+
+      - name: Unit tests
+        run: python -m unittest discover -s tests -v
+
+      - name: Doctests
+        run: |
+          python - <<'PY'
+          import doctest, importlib, sys
+          modules = (
+              "csvdoctor", "csvdoctor.values", "csvdoctor.dialect",
+              "csvdoctor.profile", "csvdoctor.repair", "csvdoctor.rules",
+              "csvdoctor.checks",
+          )
+          total = 0
+          for name in modules:
+              result = doctest.testmod(importlib.import_module(name))
+              print(name, result)
+              total += result.attempted
+              if result.failed:
+                  sys.exit(1)
+          assert total >= 60, total
+          PY
+
+      - name: Demo
+        run: python examples/demo.py
+
+      - name: CLI contract
+        run: |
+          set -euo pipefail
+
+          python -m csvdoctor.cli sniff examples/orders.csv --json | tee sniff.json
+          python - <<'PY'
+          import json
+          data = json.load(open("sniff.json"))
+          assert data["delimiter"] == ",", data
+          assert data["encoding"] == "utf-8-sig", data
+          assert data["has_header"] is True, data
+          PY
+
+          python -m csvdoctor.cli profile examples/messy.csv --json > profile.json
+          python - <<'PY'
+          import json
+          data = json.load(open("profile.json"))
+          assert data["rows"] == 10, data["rows"]
+          assert data["columns"] == 6, data["columns"]
+          assert data["duplicate_rows"] == 1, data["duplicate_rows"]
+          assert data["ragged_rows"] == 1, data["ragged_rows"]
+          kinds = {c["name"]: c["kind"] for c in data["column_profiles"]}
+          assert kinds["id"] == "integer", kinds
+          assert kinds["mrr"] == "integer", kinds
+          codes = {r["code"] for r in data["recommendations"]}
+          assert "ragged_rows" in codes, codes
+          assert "mixed_date_formats" in codes, codes
+          PY
+
+          # errors exit 2, warnings exit 1, --strict promotes warnings
+          set +e
+          python -m csvdoctor.cli profile examples/messy.csv > /dev/null
+          test "$?" -eq 2
+          printf 'a,b\n1,\n2,\n3,\n4,x\n5,y\n' > warn.csv
+          python -m csvdoctor.cli profile warn.csv > /dev/null
+          test "$?" -eq 1
+          python -m csvdoctor.cli profile warn.csv --strict > /dev/null
+          test "$?" -eq 2
+          set -e
+
+          # validation reports every violation and exits 2
+          set +e
+          python -m csvdoctor.cli validate examples/messy.csv \
+            --rules examples/rules.json --json > validate.json
+          test "$?" -eq 2
+          set -e
+          python - <<'PY'
+          import json
+          data = json.load(open("validate.json"))
+          assert data["rows"] == 10, data
+          assert data["errors"] == 4, data["errors"]
+          assert data["warnings"] == 1, data["warnings"]
+          rules = [f["rule"] for f in data["findings"]]
+          assert "allowed" in rules and "range" in rules, rules
+          assert "unique" in rules, rules
+          PY
+
+          # a dry run never touches the filesystem
+          python -m csvdoctor.cli repair examples/messy.csv --out dry.csv \
+            --drop-extra-cells --drop-duplicates --numbers --dry-run --json > dry.json
+          test ! -f dry.csv
+          python - <<'PY'
+          import json
+          data = json.load(open("dry.json"))
+          plan = data["plan"]
+          assert plan["changed"] is True, plan
+          assert plan["dropped_rows"] == 1, plan
+          assert plan["truncate_rows"] == 1, plan
+          assert plan["header"][1] == "full_name", plan["header"]
+          PY
+
+          # a real repair is idempotent
+          python -m csvdoctor.cli repair examples/messy.csv --out fixed.csv \
+            --drop-extra-cells --drop-duplicates --numbers > /dev/null
+          python -m csvdoctor.cli repair fixed.csv --out fixed2.csv \
+            --drop-extra-cells --drop-duplicates --numbers --json > again.json
+          python - <<'PY'
+          import json
+          data = json.load(open("again.json"))
+          assert data["plan"]["changed"] is False, data["plan"]
+          assert data["rows_read"] == data["rows_written"] == 9, data
+          PY
+
+          # locales: European numbers and unambiguous day-first dates
+          python -m csvdoctor.cli repair examples/orders.csv --out orders.csv \
+            --dates --numbers > /dev/null
+          grep -q "A-1,2024-01-13,1299" orders.csv
+          grep -q "A-3,2024-03-02,-12" orders.csv
+
+          # usage errors are exit 2, not findings
+          set +e
+          python -m csvdoctor.cli profile does-not-exist.csv 2> missing.txt
+          test "$?" -eq 2
+          grep -q "no such file" missing.txt
+
+          echo '{"columns":{"a":[{"rule":"nope"}]}}' > bad-rules.json
+          python -m csvdoctor.cli validate examples/messy.csv \
+            --rules bad-rules.json 2> rules.txt
+          test "$?" -eq 2
+          grep -q "unknown rule" rules.txt
+          set -e
+
+  package:
+    name: build and install
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Build wheel
+        run: |
+          python -m pip install --upgrade pip build
+          python -m build
+
+      - name: Install wheel and run the console script
+        run: |
+          python -m pip install dist/*.whl
+          csv-doctor sniff examples/messy.csv
+          csv-doctor profile examples/messy.csv || test $? -eq 2
+          python -c "import csvdoctor; print(csvdoctor.__version__)"

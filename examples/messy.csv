@@ -1,0 +1,11 @@
+id,Full Name,Signup Date,MRR,Status,Notes
+1001, Ada Lovelace ,2024-01-05,"1,299.00",Active,first customer
+1002,Grace Hopper,05/02/2024,899,active,
+1003,"Katherine Johnson",2024-03-11,1299.00,Active,"renewed, annual"
+1004,Radia Perlman,2024-03-12,-50,Active,refund pending
+1005,Barbara Liskov,2024-04-01,1299.00,Churned,text that mentions 1; and | pipes
+1006,Margaret Hamilton,2024-04-02,,Active,no mrr on file
+1007,,2024-04-03,499.00,Active,missing name
+1008,Frances Allen,2024-04-04,1299.00,Active,
+1008,Frances Allen,2024-04-04,1299.00,Active,
+1010,Shafi Goldwasser,2024-05-01,199.00,Active,extra,cell,here
